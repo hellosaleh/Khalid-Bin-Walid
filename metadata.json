@@ -1,0 +1,6 @@
+{
+  "name": "Bulk Ad Creative Generator",
+  "description": "An elegant, high-performance bulk ad creative creator. Features multiple canvas ratios, instant solid/gradient styling, multi-source background distribution, Unsplash keyword-aware background generation, and high-DPI retina rendering.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
