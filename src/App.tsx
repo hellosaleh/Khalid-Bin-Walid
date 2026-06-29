@@ -64,13 +64,6 @@ const getAutoTextColor = (bg: string, chosenColor: string): string => {
   return chosenColor;
 };
 
-const getContrastColorForBg = (bgHex: string, defaultColor: string): string => {
-  if (isLightColor(bgHex)) {
-    return '#0f172a';
-  }
-  return defaultColor;
-};
-
 export default function App() {
   // 1. Core State
   const [adCopies, setAdCopies] = useState<string[]>(() => {
@@ -1014,7 +1007,7 @@ export default function App() {
       const ctaBg = vividStylePerLine[idx] ? vividStylePerLine[idx].cta : settings.ctaBgColor;
       const finalCtaTextColor = settings.ctaTransparent 
         ? getAutoTextColor(effectiveBgColor, settings.ctaTextColor)
-        : getContrastColorForBg(ctaBg, settings.ctaTextColor);
+        : getAutoTextColor(ctaBg, settings.ctaTextColor);
 
       // Draw custom CTA shapes in export to match preview exactly
       const roundRectPathExport = (x: number, y: number, width: number, height: number, radius: number) => {
@@ -2229,24 +2222,30 @@ export default function App() {
                         ))}
                       </div>
 
-                      <div className="grid grid-cols-2 gap-2 pt-1">
+                      <div className="grid grid-cols-2 gap-3 pt-1">
                         <div>
                           <span className="text-[10px] font-bold text-white/40 uppercase tracking-wider">Text Color</span>
-                          <input
-                            type="color"
-                            value={settings.ctaTextColor}
-                            onChange={e => setSettings(prev => ({ ...prev, ctaTextColor: e.target.value }))}
-                            className="h-8 w-full mt-1 cursor-pointer rounded-lg border border-white/10 bg-transparent"
-                          />
+                          <div className="flex items-center gap-1.5 mt-1 bg-white/5 border border-white/10 rounded-lg p-1.5">
+                            <input
+                              type="color"
+                              value={settings.ctaTextColor}
+                              onChange={e => setSettings(prev => ({ ...prev, ctaTextColor: e.target.value }))}
+                              className="h-7 w-7 shrink-0 cursor-pointer rounded border border-white/10 bg-transparent"
+                            />
+                            <span className="text-[10px] font-semibold uppercase font-mono text-white/80">{settings.ctaTextColor}</span>
+                          </div>
                         </div>
                         <div>
                           <span className="text-[10px] font-bold text-white/40 uppercase tracking-wider">Button BG</span>
-                          <input
-                            type="color"
-                            value={settings.ctaBgColor}
-                            onChange={e => setSettings(prev => ({ ...prev, ctaBgColor: e.target.value }))}
-                            className="h-8 w-full mt-1 cursor-pointer rounded-lg border border-white/10 bg-transparent"
-                          />
+                          <div className="flex items-center gap-1.5 mt-1 bg-white/5 border border-white/10 rounded-lg p-1.5">
+                            <input
+                              type="color"
+                              value={settings.ctaBgColor}
+                              onChange={e => setSettings(prev => ({ ...prev, ctaBgColor: e.target.value }))}
+                              className="h-7 w-7 shrink-0 cursor-pointer rounded border border-white/10 bg-transparent"
+                            />
+                            <span className="text-[10px] font-semibold uppercase font-mono text-white/80">{settings.ctaBgColor}</span>
+                          </div>
                         </div>
                       </div>
 

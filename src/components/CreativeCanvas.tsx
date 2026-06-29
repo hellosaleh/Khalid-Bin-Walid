@@ -43,13 +43,6 @@ const getAutoTextColor = (bg: string, chosenColor: string): string => {
   return chosenColor;
 };
 
-const getContrastColorForBg = (bgHex: string, defaultColor: string): string => {
-  if (isLightColor(bgHex)) {
-    return '#0f172a';
-  }
-  return defaultColor;
-};
-
 export const CreativeCanvas: React.FC<CreativeCanvasProps> = ({
   text,
   idx,
@@ -628,7 +621,7 @@ export const CreativeCanvas: React.FC<CreativeCanvasProps> = ({
       const ctaBg = vividStyle ? vividStyle.cta : settings.ctaBgColor;
       const finalCtaTextColor = settings.ctaTransparent 
         ? getAutoTextColor(effectiveBgColor, settings.ctaTextColor)
-        : getContrastColorForBg(ctaBg, settings.ctaTextColor);
+        : getAutoTextColor(ctaBg, settings.ctaTextColor);
 
       // Render shape
       if (!settings.ctaTransparent) {
