@@ -57,6 +57,22 @@ const isLightColor = (hex: string): boolean => {
   return luminance > 0.65;
 };
 
+const colorsAreTooClose = (c1: string, c2: string): boolean => {
+  if (!c1 || !c2) return false;
+  if (c1.startsWith('rgba') || c1 === 'transparent' || c2.startsWith('rgba') || c2 === 'transparent') return false;
+  const cleanHex1 = c1.replace('#', '');
+  const cleanHex2 = c2.replace('#', '');
+  if (cleanHex1.length < 6 || cleanHex2.length < 6) return false;
+  const r1 = parseInt(cleanHex1.slice(0, 2), 16) || 0;
+  const g1 = parseInt(cleanHex1.slice(2, 4), 16) || 0;
+  const b1 = parseInt(cleanHex1.slice(4, 6), 16) || 0;
+  const r2 = parseInt(cleanHex2.slice(0, 2), 16) || 0;
+  const g2 = parseInt(cleanHex2.slice(2, 4), 16) || 0;
+  const b2 = parseInt(cleanHex2.slice(4, 6), 16) || 0;
+  const dist = Math.sqrt((r1 - r2) ** 2 + (g1 - g2) ** 2 + (b1 - b2) ** 2);
+  return dist < 90;
+};
+
 const getAutoTextColor = (bg: string, chosenColor: string): string => {
   return chosenColor;
 };
@@ -84,8 +100,13 @@ export default function App() {
       gradC1: '#6366f1',
       gradC2: '#1e1b4b',
       gradAngle: 135,
-      images: [],
-      selectedImageIndex: undefined,
+      images: [
+        { url: '/input_file_0.png', name: 'Ruby Grunge Velvet' },
+        { url: '/input_file_1.png', name: 'Crimson Sunburst Ray' },
+        { url: '/input_file_2.png', name: 'Amethyst Watercolor Floral' },
+        { url: '/input_file_3.png', name: 'Celeste Watercolor Leaf' }
+      ],
+      selectedImageIndex: 0,
       imgFit: 'cover',
       overlayEnabled: true,
       overlayColor: '#000000',
@@ -788,8 +809,12 @@ export default function App() {
     const bgUrl = perCardImages[idx] || (settings.bgTab === 'image' && settings.images[settings.selectedImageIndex ?? 0]?.url);
     
     // Determine effective background color for contrast logic
+    const hasSolidOverride = !!(vividStylePerLine[idx] || perCardBgColors[idx]);
     let effectiveBgColor = '#ffffff';
-    if (settings.bgTab === 'image' && bgUrl && !forceSolidBg) {
+
+    if (hasSolidOverride) {
+      effectiveBgColor = vividStylePerLine[idx] ? vividStylePerLine[idx].bg : perCardBgColors[idx];
+    } else if (settings.bgTab === 'image' && bgUrl && !forceSolidBg) {
       if (settings.overlayEnabled) {
         effectiveBgColor = settings.overlayColor;
       } else {
@@ -798,12 +823,13 @@ export default function App() {
     } else if (settings.bgTab === 'gradient' && !forceSolidBg) {
       effectiveBgColor = settings.gradC1;
     } else {
-      effectiveBgColor = vividStylePerLine[idx]
-        ? vividStylePerLine[idx].bg
-        : perCardBgColors[idx] || settings.bgColor;
+      effectiveBgColor = settings.bgColor;
     }
 
-    if (settings.bgTab === 'image' && bgUrl && !forceSolidBg) {
+    if (hasSolidOverride) {
+      ctx.fillStyle = effectiveBgColor;
+      ctx.fillRect(0, 0, w, h);
+    } else if (settings.bgTab === 'image' && bgUrl && !forceSolidBg) {
       // Since it's fully exported, let's load it synchronously if possible, or wait
       const img = new Image();
       img.crossOrigin = 'anonymous';
@@ -845,13 +871,21 @@ export default function App() {
         ctx.fillRect(0, 0, w, h);
       }
     } else if (settings.bgTab === 'gradient' && !forceSolidBg) {
-      const angleRad = (settings.gradAngle * Math.PI) / 180;
-      const grd = ctx.createLinearGradient(
-        w / 2 - (Math.cos(angleRad) * w) / 2,
-        h / 2 - (Math.sin(angleRad) * h) / 2,
-        w / 2 + (Math.cos(angleRad) * w) / 2,
-        h / 2 + (Math.sin(angleRad) * h) / 2
-      );
+      let grd;
+      if (settings.gradType === 'radial') {
+        grd = ctx.createRadialGradient(
+          w / 2, h / 2, 5,
+          w / 2, h / 2, Math.max(w, h) / 1.5
+        );
+      } else {
+        const angleRad = (settings.gradAngle * Math.PI) / 180;
+        grd = ctx.createLinearGradient(
+          w / 2 - (Math.cos(angleRad) * w) / 2,
+          h / 2 - (Math.sin(angleRad) * h) / 2,
+          w / 2 + (Math.cos(angleRad) * w) / 2,
+          h / 2 + (Math.sin(angleRad) * h) / 2
+        );
+      }
       grd.addColorStop(0, settings.gradC1);
       grd.addColorStop(1, settings.gradC2);
       ctx.fillStyle = grd;
@@ -915,19 +949,37 @@ export default function App() {
 
       if (!hasHighlights) {
         const baseTxtColor = vividStylePerLine[idx] ? vividStylePerLine[idx].text : settings.textColor;
-        ctx.fillStyle = getAutoTextColor(effectiveBgColor, baseTxtColor);
-        if (settings.shadowEnabled) {
+        ctx.fillStyle = baseTxtColor;
+
+        const tooClose = colorsAreTooClose(effectiveBgColor, baseTxtColor);
+        const shadowEnabled = settings.shadowEnabled;
+        const outlineEnabled = settings.outlineEnabled || tooClose;
+        const outlineColor = tooClose 
+          ? (isLightColor(effectiveBgColor) ? '#0f172a' : '#ffffff') 
+          : settings.outlineColor;
+        const outlineWidth = tooClose 
+          ? Math.max(2, settings.outlineWidth) 
+          : settings.outlineWidth;
+
+        if (shadowEnabled) {
           ctx.shadowColor = settings.shadowColor;
           ctx.shadowBlur = settings.shadowBlur;
           ctx.shadowOffsetX = settings.shadowOx;
           ctx.shadowOffsetY = settings.shadowOy;
         }
-        if (settings.outlineEnabled) {
-          ctx.strokeStyle = settings.outlineColor;
-          ctx.lineWidth = settings.outlineWidth * 2;
-          ctx.strokeText(line, w / 2, currentY);
+
+        let strokeX = w / 2;
+        if (settings.hAlign === 'left') strokeX = w * 0.08;
+        if (settings.hAlign === 'right') strokeX = w - w * 0.08;
+
+        if (outlineEnabled) {
+          ctx.strokeStyle = outlineColor;
+          ctx.lineWidth = outlineWidth * 2;
+          ctx.lineJoin = 'round';
+          ctx.strokeText(line, strokeX, currentY);
         }
-        ctx.fillText(line, w / 2, currentY);
+
+        ctx.fillText(line, strokeX, currentY);
         ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
       } else {
         // inline highlight drawing in export (simplified width measurement and cursor movement)
@@ -960,9 +1012,28 @@ export default function App() {
             ctx.fillText(ch.text, curX, currentY);
           } else {
             const baseTxtColor = vividStylePerLine[idx] ? vividStylePerLine[idx].text : settings.textColor;
-            ctx.fillStyle = ch.isHighlight 
-              ? getAutoTextColor(effectiveBgColor, settings.highlightColor) 
-              : getAutoTextColor(effectiveBgColor, baseTxtColor);
+            const currentTxtColor = ch.isHighlight 
+              ? settings.highlightColor
+              : baseTxtColor;
+
+            ctx.fillStyle = currentTxtColor;
+
+            const tooClose = colorsAreTooClose(effectiveBgColor, currentTxtColor);
+            const outlineEnabled = settings.outlineEnabled || tooClose;
+            const outlineColor = tooClose 
+              ? (isLightColor(effectiveBgColor) ? '#0f172a' : '#ffffff') 
+              : settings.outlineColor;
+            const outlineWidth = tooClose 
+              ? Math.max(2, settings.outlineWidth) 
+              : settings.outlineWidth;
+
+            if (outlineEnabled) {
+              ctx.strokeStyle = outlineColor;
+              ctx.lineWidth = outlineWidth * 2;
+              ctx.lineJoin = 'round';
+              ctx.strokeText(ch.text, curX, currentY);
+            }
+
             ctx.fillText(ch.text, curX, currentY);
           }
           curX += ch.width;
@@ -1311,7 +1382,7 @@ export default function App() {
           </div>
           <div>
             <h1 className="text-md font-bold tracking-tight">Ad Creative Studio</h1>
-            <p className={`text-[10px] font-bold uppercase tracking-widest ${theme === 'dark' ? 'text-white/50' : 'text-slate-500'}`}>A Tool By KHLD</p>
+            <p className={`text-[10px] font-bold uppercase tracking-widest ${theme === 'dark' ? 'text-white/50' : 'text-slate-500'}`}>A TOOL BY KHALID</p>
           </div>
         </div>
 
@@ -1388,6 +1459,25 @@ export default function App() {
                 </div>
 
                 <div className="flex flex-col gap-1.5 pt-1">
+                  <button
+                    onClick={() => {
+                      if (activeEditIndex !== null) {
+                        const cardOverrides = perCardSettings[activeEditIndex] || {};
+                        setGlobalSettings(prev => ({
+                          ...prev,
+                          ...cardOverrides
+                        }));
+                        setPerCardSettings(prev => {
+                          const updated = { ...prev };
+                          delete updated[activeEditIndex];
+                          return updated;
+                        });
+                      }
+                    }}
+                    className="w-full rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 hover:border-emerald-500/40 text-emerald-400 text-[10px] font-black tracking-wider uppercase py-2 transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                    <Check className="h-3.5 w-3.5" /> Make this the Global Style
+                  </button>
                   <button
                     onClick={() => {
                       if (activeEditIndex !== null) {
@@ -1620,20 +1710,50 @@ export default function App() {
                         </div>
                       </div>
 
-                      <div>
-                        <div className="flex items-center justify-between text-[11px] font-bold text-white/60">
-                          <span>GRADIENT ANGLE</span>
-                          <span>{settings.gradAngle}°</span>
+                      <div className="flex items-center justify-between text-[11px] font-bold text-white/60 pt-1.5">
+                        <span>GRADIENT TYPE</span>
+                        <div className="flex gap-1 p-0.5 rounded-lg bg-slate-950/40 border border-white/10">
+                          <button
+                            type="button"
+                            onClick={() => setSettings(prev => ({ ...prev, gradType: 'linear' }))}
+                            className={`rounded px-2.5 py-0.5 text-[10px] font-bold transition-all cursor-pointer ${
+                              (settings.gradType || 'linear') === 'linear'
+                                ? 'bg-indigo-600 text-white shadow'
+                                : 'text-white/60 hover:text-white'
+                            }`}
+                          >
+                            Linear
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setSettings(prev => ({ ...prev, gradType: 'radial' }))}
+                            className={`rounded px-2.5 py-0.5 text-[10px] font-bold transition-all cursor-pointer ${
+                              settings.gradType === 'radial'
+                                ? 'bg-indigo-600 text-white shadow'
+                                : 'text-white/60 hover:text-white'
+                            }`}
+                          >
+                            Radial
+                          </button>
                         </div>
-                        <input
-                          type="range"
-                          min="0"
-                          max="360"
-                          value={settings.gradAngle}
-                          onChange={e => setSettings(prev => ({ ...prev, gradAngle: parseInt(e.target.value) }))}
-                          className="w-full h-1 mt-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-indigo-500"
-                        />
                       </div>
+
+                      {(settings.gradType || 'linear') === 'linear' && (
+                        <div>
+                          <div className="flex items-center justify-between text-[11px] font-bold text-white/60">
+                            <span>GRADIENT ANGLE</span>
+                            <span>{settings.gradAngle}°</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="360"
+                            value={settings.gradAngle}
+                            onChange={e => setSettings(prev => ({ ...prev, gradAngle: parseInt(e.target.value) }))}
+                            className="w-full h-1 mt-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                          />
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -1663,6 +1783,53 @@ export default function App() {
                         <Sparkles className="h-4 w-4 text-amber-300 animate-spin" />
                         AI Auto Background (All Cards)
                       </button>
+
+
+                      {/* Premium Ready-Made Backgrounds */}
+                      <div>
+                        <span className="text-[10px] font-bold text-white/40 uppercase block mb-2 tracking-wider">Premium Ready-Made Backgrounds</span>
+                        <div className="grid grid-cols-4 gap-2">
+                          {[
+                            { url: '/input_file_0.png', name: 'Ruby Velvet' },
+                            { url: '/input_file_1.png', name: 'Crimson Sunburst' },
+                            { url: '/input_file_2.png', name: 'Amethyst Floral' },
+                            { url: '/input_file_3.png', name: 'Celeste Leaf' }
+                          ].map((bg, idx) => {
+                            const isSelected = settings.images[settings.selectedImageIndex ?? -1]?.url === bg.url;
+                            return (
+                              <button
+                                key={idx}
+                                type="button"
+                                onClick={() => {
+                                  setSettings(prev => {
+                                    const existsIdx = prev.images.findIndex(img => img.url === bg.url);
+                                    if (existsIdx >= 0) {
+                                      return { ...prev, selectedImageIndex: existsIdx };
+                                    } else {
+                                      return {
+                                        ...prev,
+                                        images: [...prev.images, bg],
+                                        selectedImageIndex: prev.images.length
+                                      };
+                                    }
+                                  });
+                                }}
+                                className={`relative rounded-xl overflow-hidden border-2 aspect-square cursor-pointer transition-all hover:scale-[1.05] flex flex-col justify-end bg-slate-950 ${
+                                  isSelected
+                                    ? 'border-indigo-500 ring-2 ring-indigo-500/30'
+                                    : 'border-white/10 hover:border-white/25'
+                                }`}
+                                title={bg.name}
+                              >
+                                <img src={bg.url} alt={bg.name} className="absolute inset-0 h-full w-full object-cover opacity-85" />
+                                <div className="absolute inset-x-0 bottom-0 bg-black/70 py-0.5 text-[8px] font-black text-white/90 truncate px-1 text-center select-none">
+                                  {bg.name}
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
 
                       {/* Uploaded Images Thumbnails */}
                       {settings.images.length > 0 && (
@@ -2230,6 +2397,39 @@ export default function App() {
                         className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold focus:outline-none focus:border-indigo-500 text-white"
                         placeholder="Apply Now"
                       />
+
+                      <div className="grid grid-cols-2 gap-3 pt-1">
+                        <div>
+                          <span className="text-[10px] font-bold text-white/40 uppercase block tracking-wider mb-1">Button Font Weight</span>
+                          <select
+                            value={settings.ctaWeight}
+                            onChange={e => setSettings(prev => ({ ...prev, ctaWeight: e.target.value }))}
+                            className="w-full rounded-md border border-white/10 bg-slate-900 px-2 py-1 text-xs font-bold text-white cursor-pointer"
+                          >
+                            <option value="300" className="bg-slate-900 text-white">Light</option>
+                            <option value="400" className="bg-slate-900 text-white">Regular</option>
+                            <option value="500" className="bg-slate-900 text-white">Medium</option>
+                            <option value="600" className="bg-slate-900 text-white">SemiBold</option>
+                            <option value="700" className="bg-slate-900 text-white">Bold</option>
+                            <option value="800" className="bg-slate-900 text-white">ExtraBold</option>
+                            <option value="900" className="bg-slate-900 text-white">Black</option>
+                          </select>
+                        </div>
+                        <div>
+                          <span className="text-[10px] font-bold text-white/40 uppercase block tracking-wider mb-1">Button Font Size</span>
+                          <div className="flex items-center gap-2 mt-1 bg-white/5 border border-white/10 rounded-lg p-1.5 h-[28px]">
+                            <input
+                              type="range"
+                              min="12"
+                              max="72"
+                              value={settings.ctaSize}
+                              onChange={e => setSettings(prev => ({ ...prev, ctaSize: parseInt(e.target.value) }))}
+                              className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                            />
+                            <span className="text-[10px] font-bold text-white/60 min-w-[24px] text-right">{settings.ctaSize}px</span>
+                          </div>
+                        </div>
+                      </div>
 
                       <div className="grid grid-cols-4 gap-1 pt-1.5">
                         {(['pill', 'soft', 'sharp', 'angled'] as CtaShape[]).map(sh => (
@@ -2809,7 +3009,7 @@ export default function App() {
                     onMouseDown={(e) => handleDragStart(originalIndex, e)}
                   >
                     {(() => {
-                      const cardSettings = editScope === 'global' ? globalSettings : { ...globalSettings, ...(perCardSettings[originalIndex] || {}) };
+                      const cardSettings = { ...globalSettings, ...(perCardSettings[originalIndex] || {}) };
                       return (
                         <CreativeCanvas
                           text={copy}
@@ -2927,7 +3127,7 @@ export default function App() {
 
               <div className="w-full max-h-[75vh] flex items-center justify-center p-4" onClick={(e) => e.stopPropagation()}>
                 {(() => {
-                  const cardSettings = editScope === 'global' ? globalSettings : { ...globalSettings, ...(perCardSettings[lightboxIndex] || {}) };
+                  const cardSettings = { ...globalSettings, ...(perCardSettings[lightboxIndex] || {}) };
                   return (
                     <CreativeCanvas
                       text={adCopies[lightboxIndex] || ''}

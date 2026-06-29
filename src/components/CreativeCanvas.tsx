@@ -36,11 +36,27 @@ const isLightColor = (hex: string): boolean => {
   return luminance > 0.65;
 };
 
+const colorsAreTooClose = (c1: string, c2: string): boolean => {
+  if (!c1 || !c2) return false;
+  if (c1.startsWith('rgba') || c1 === 'transparent' || c2.startsWith('rgba') || c2 === 'transparent') return false;
+  const cleanHex1 = c1.replace('#', '');
+  const cleanHex2 = c2.replace('#', '');
+  if (cleanHex1.length < 6 || cleanHex2.length < 6) return false;
+  const r1 = parseInt(cleanHex1.slice(0, 2), 16) || 0;
+  const g1 = parseInt(cleanHex1.slice(2, 4), 16) || 0;
+  const b1 = parseInt(cleanHex1.slice(4, 6), 16) || 0;
+  const r2 = parseInt(cleanHex2.slice(0, 2), 16) || 0;
+  const g2 = parseInt(cleanHex2.slice(2, 4), 16) || 0;
+  const b2 = parseInt(cleanHex2.slice(4, 6), 16) || 0;
+  const dist = Math.sqrt((r1 - r2) ** 2 + (g1 - g2) ** 2 + (b1 - b2) ** 2);
+  return dist < 90;
+};
+
 const getAutoTextColor = (bg: string, chosenColor: string): string => {
   return chosenColor;
 };
 
-export const CreativeCanvas: React.FC<CreativeCanvasProps> = ({
+const CreativeCanvasComponent: React.FC<CreativeCanvasProps> = ({
   text,
   idx,
   settings,
@@ -299,7 +315,11 @@ export const CreativeCanvas: React.FC<CreativeCanvasProps> = ({
 
     // Determine effective background color for text contrast calculations
     let effectiveBgColor = '#ffffff';
-    if (settings.bgTab === 'image') {
+    const hasSolidOverride = !!(vividStyle || perCardBgColor);
+
+    if (hasSolidOverride) {
+      effectiveBgColor = vividStyle ? vividStyle.bg : perCardBgColor!;
+    } else if (settings.bgTab === 'image') {
       if (settings.overlayEnabled) {
         effectiveBgColor = settings.overlayColor;
       } else {
@@ -308,13 +328,14 @@ export const CreativeCanvas: React.FC<CreativeCanvasProps> = ({
     } else if (settings.bgTab === 'gradient') {
       effectiveBgColor = settings.gradC1; // Use primary gradient color
     } else {
-      effectiveBgColor = vividStyle
-        ? vividStyle.bg
-        : perCardBgColor || settings.bgColor;
+      effectiveBgColor = settings.bgColor;
     }
 
     // Render background
-    if (settings.bgTab === 'image') {
+    if (hasSolidOverride) {
+      ctx.fillStyle = effectiveBgColor;
+      ctx.fillRect(0, 0, w, h);
+    } else if (settings.bgTab === 'image') {
       const bgUrl = perCardImage || (settings.images[settings.selectedImageIndex ?? 0]?.url);
       const cachedImg = bgUrl ? imageCache[bgUrl] : null;
 
@@ -353,13 +374,21 @@ export const CreativeCanvas: React.FC<CreativeCanvasProps> = ({
         ctx.fillRect(0, 0, w, h);
       }
     } else if (settings.bgTab === 'gradient') {
-      const angleRad = (settings.gradAngle * Math.PI) / 180;
-      const grd = ctx.createLinearGradient(
-        w / 2 - (Math.cos(angleRad) * w) / 2,
-        h / 2 - (Math.sin(angleRad) * h) / 2,
-        w / 2 + (Math.cos(angleRad) * w) / 2,
-        h / 2 + (Math.sin(angleRad) * h) / 2
-      );
+      let grd;
+      if (settings.gradType === 'radial') {
+        grd = ctx.createRadialGradient(
+          w / 2, h / 2, 5,
+          w / 2, h / 2, Math.max(w, h) / 1.5
+        );
+      } else {
+        const angleRad = (settings.gradAngle * Math.PI) / 180;
+        grd = ctx.createLinearGradient(
+          w / 2 - (Math.cos(angleRad) * w) / 2,
+          h / 2 - (Math.sin(angleRad) * h) / 2,
+          w / 2 + (Math.cos(angleRad) * w) / 2,
+          h / 2 + (Math.sin(angleRad) * h) / 2
+        );
+      }
       grd.addColorStop(0, settings.gradC1);
       grd.addColorStop(1, settings.gradC2);
       ctx.fillStyle = grd;
@@ -480,20 +509,32 @@ export const CreativeCanvas: React.FC<CreativeCanvasProps> = ({
             // Apply standard text-color highlight or base text color
             ctx.save();
             const baseTxtColor = vividStyle ? vividStyle.text : settings.textColor;
-            ctx.fillStyle = chunk.isHighlight 
-              ? getAutoTextColor(effectiveBgColor, settings.highlightColor)
-              : getAutoTextColor(effectiveBgColor, baseTxtColor);
+            const currentTxtColor = chunk.isHighlight 
+              ? settings.highlightColor
+              : baseTxtColor;
+
+            ctx.fillStyle = currentTxtColor;
 
             // Apply shadow and outline text effects
-            if (settings.shadowEnabled) {
+            const tooClose = colorsAreTooClose(effectiveBgColor, currentTxtColor);
+            const shadowEnabled = settings.shadowEnabled;
+            const outlineEnabled = settings.outlineEnabled || tooClose;
+            const outlineColor = tooClose 
+              ? (isLightColor(effectiveBgColor) ? '#0f172a' : '#ffffff') 
+              : settings.outlineColor;
+            const outlineWidth = tooClose 
+              ? Math.max(2, settings.outlineWidth) 
+              : settings.outlineWidth;
+
+            if (shadowEnabled) {
               ctx.shadowColor = settings.shadowColor;
               ctx.shadowBlur = settings.shadowBlur;
               ctx.shadowOffsetX = settings.shadowOx;
               ctx.shadowOffsetY = settings.shadowOy;
             }
-            if (settings.outlineEnabled) {
-              ctx.strokeStyle = settings.outlineColor;
-              ctx.lineWidth = settings.outlineWidth * 2;
+            if (outlineEnabled) {
+              ctx.strokeStyle = outlineColor;
+              ctx.lineWidth = outlineWidth * 2;
               ctx.lineJoin = 'round';
               ctx.strokeText(chunk.cleanText, cursorX, currentY);
             }
@@ -669,18 +710,28 @@ export const CreativeCanvas: React.FC<CreativeCanvasProps> = ({
   ) => {
     ctx.save();
     const baseTxtColor = vividStyle ? vividStyle.text : settings.textColor;
-    ctx.fillStyle = getAutoTextColor(effectiveBgColor, baseTxtColor);
+    ctx.fillStyle = baseTxtColor;
 
-    if (settings.shadowEnabled) {
+    const tooClose = colorsAreTooClose(effectiveBgColor, baseTxtColor);
+    const shadowEnabled = settings.shadowEnabled;
+    const outlineEnabled = settings.outlineEnabled || tooClose;
+    const outlineColor = tooClose 
+      ? (isLightColor(effectiveBgColor) ? '#0f172a' : '#ffffff') 
+      : settings.outlineColor;
+    const outlineWidth = tooClose 
+      ? Math.max(2, settings.outlineWidth) 
+      : settings.outlineWidth;
+
+    if (shadowEnabled) {
       ctx.shadowColor = settings.shadowColor;
       ctx.shadowBlur = settings.shadowBlur;
       ctx.shadowOffsetX = settings.shadowOx;
       ctx.shadowOffsetY = settings.shadowOy;
     }
 
-    if (settings.outlineEnabled) {
-      ctx.strokeStyle = settings.outlineColor;
-      ctx.lineWidth = settings.outlineWidth * 2;
+    if (outlineEnabled) {
+      ctx.strokeStyle = outlineColor;
+      ctx.lineWidth = outlineWidth * 2;
       ctx.lineJoin = 'round';
       ctx.strokeText(line, x, y);
     }
@@ -701,3 +752,20 @@ export const CreativeCanvas: React.FC<CreativeCanvasProps> = ({
     />
   );
 };
+
+export const CreativeCanvas = React.memo(CreativeCanvasComponent, (prevProps, nextProps) => {
+  return (
+    prevProps.text === nextProps.text &&
+    prevProps.idx === nextProps.idx &&
+    prevProps.perCardImage === nextProps.perCardImage &&
+    prevProps.perCardBgColor === nextProps.perCardBgColor &&
+    prevProps.perCardPos === nextProps.perCardPos &&
+    prevProps.vividStyle?.bg === nextProps.vividStyle?.bg &&
+    prevProps.vividStyle?.text === nextProps.vividStyle?.text &&
+    prevProps.vividStyle?.cta === nextProps.vividStyle?.cta &&
+    prevProps.selectedFlagUrl === nextProps.selectedFlagUrl &&
+    prevProps.selectedFlagHAlign === nextProps.selectedFlagHAlign &&
+    prevProps.previewScale === nextProps.previewScale &&
+    JSON.stringify(prevProps.settings) === JSON.stringify(nextProps.settings)
+  );
+});
