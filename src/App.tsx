@@ -45,6 +45,32 @@ import {
   STYLE_TEMPLATES
 } from './data';
 
+const isLightColor = (hex: string): boolean => {
+  if (!hex) return false;
+  if (hex.startsWith('rgba') || hex === 'transparent') return false;
+  const cleanHex = hex.replace('#', '');
+  if (cleanHex.length < 6) return false;
+  const r = parseInt(cleanHex.slice(0, 2), 16) || 0;
+  const g = parseInt(cleanHex.slice(2, 4), 16) || 0;
+  const b = parseInt(cleanHex.slice(4, 6), 16) || 0;
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.65;
+};
+
+const getAutoTextColor = (bg: string, chosenColor: string): string => {
+  if (isLightColor(bg) && isLightColor(chosenColor)) {
+    return '#0f172a';
+  }
+  return chosenColor;
+};
+
+const getContrastColorForBg = (bgHex: string, defaultColor: string): string => {
+  if (isLightColor(bgHex)) {
+    return '#0f172a';
+  }
+  return defaultColor;
+};
+
 export default function App() {
   // 1. Core State
   const [adCopies, setAdCopies] = useState<string[]>(() => {
@@ -173,6 +199,11 @@ export default function App() {
   const setSettings = useCallback((
     updater: AppSettings | ((prev: AppSettings) => AppSettings)
   ) => {
+    const triggerKeys: Array<keyof AppSettings> = [
+      'bgColor', 'bgTab', 'selectedImageIndex', 'gradC1', 'gradC2',
+      'textColor', 'ctaBgColor', 'ctaTextColor', 'highlightColor'
+    ];
+
     if (editScope === 'single' && activeEditIndex !== null) {
       setPerCardSettings(prev => {
         const currentOverrides = prev[activeEditIndex] || {};
@@ -181,11 +212,27 @@ export default function App() {
         
         // Compute delta against globalSettings
         const diff: any = {};
+        let backgroundOrStyleChanged = false;
+
         (Object.keys(globalSettings) as Array<keyof AppSettings>).forEach(key => {
           if (JSON.stringify(nextMerged[key]) !== JSON.stringify(globalSettings[key])) {
             diff[key] = nextMerged[key];
+            if (triggerKeys.includes(key)) {
+              backgroundOrStyleChanged = true;
+            }
           }
         });
+
+        if (backgroundOrStyleChanged) {
+          setVividStylePerLine(vivid => {
+            if (vivid[activeEditIndex]) {
+              const copy = { ...vivid };
+              delete copy[activeEditIndex];
+              return copy;
+            }
+            return vivid;
+          });
+        }
         
         return {
           ...prev,
@@ -193,7 +240,17 @@ export default function App() {
         };
       });
     } else {
-      setGlobalSettings(updater);
+      setGlobalSettings(prev => {
+        const next = typeof updater === 'function' ? updater(prev) : updater;
+        const backgroundOrStyleChanged = triggerKeys.some(key => 
+          JSON.stringify(next[key]) !== JSON.stringify(prev[key])
+        );
+
+        if (backgroundOrStyleChanged) {
+          setVividStylePerLine({}); // Clear all vivid overrides globally
+        }
+        return next;
+      });
     }
   }, [editScope, activeEditIndex, globalSettings]);
 
@@ -475,6 +532,7 @@ export default function App() {
       distributed[i] = img.url;
     });
     setPerCardImages(distributed);
+    setVividStylePerLine({}); // Clear vivid styles to allow images to render
   };
 
   // Direct Assign image to currently highlighted card selection
@@ -483,6 +541,11 @@ export default function App() {
       ...prev,
       [cardIdx]: imgUrl
     }));
+    setVividStylePerLine(prev => {
+      const copy = { ...prev };
+      delete copy[cardIdx];
+      return copy;
+    });
   };
 
   // Clear per card image overrides
@@ -490,6 +553,7 @@ export default function App() {
     setPerCardImages({});
     setPerCardBgColors({});
     setPerCardPos({});
+    setVividStylePerLine({}); // Also reset all vivid styles on full clear
   };
 
   // Unsplash Autocomplete Fetch Helper
@@ -554,6 +618,7 @@ export default function App() {
     }
 
     setPerCardImages(prev => ({ ...prev, ...distributed }));
+    setVividStylePerLine({}); // Clear all vivid styles so generated images show up immediately
     setSettings(prev => ({
       ...prev,
       images: [...prev.images, ...newlyAddedImages],
@@ -703,6 +768,23 @@ export default function App() {
 
     // Render background
     const bgUrl = perCardImages[idx] || (settings.bgTab === 'image' && settings.images[settings.selectedImageIndex ?? 0]?.url);
+    
+    // Determine effective background color for contrast logic
+    let effectiveBgColor = '#ffffff';
+    if (settings.bgTab === 'image' && bgUrl && !forceSolidBg) {
+      if (settings.overlayEnabled) {
+        effectiveBgColor = settings.overlayColor;
+      } else {
+        effectiveBgColor = '#000000';
+      }
+    } else if (settings.bgTab === 'gradient' && !forceSolidBg) {
+      effectiveBgColor = settings.gradC1;
+    } else {
+      effectiveBgColor = vividStylePerLine[idx]
+        ? vividStylePerLine[idx].bg
+        : perCardBgColors[idx] || settings.bgColor;
+    }
+
     if (settings.bgTab === 'image' && bgUrl && !forceSolidBg) {
       // Since it's fully exported, let's load it synchronously if possible, or wait
       const img = new Image();
@@ -757,9 +839,7 @@ export default function App() {
       ctx.fillStyle = grd;
       ctx.fillRect(0, 0, w, h);
     } else {
-      ctx.fillStyle = vividStylePerLine[idx]
-        ? vividStylePerLine[idx].bg
-        : perCardBgColors[idx] || settings.bgColor;
+      ctx.fillStyle = effectiveBgColor;
       ctx.fillRect(0, 0, w, h);
     }
 
@@ -767,7 +847,7 @@ export default function App() {
     if (settings.subEnabled && settings.subText) {
       const subSize = Math.round(settings.subSize * scale);
       ctx.font = `500 ${subSize}px '${settings.fontFamily}', sans-serif`;
-      ctx.fillStyle = settings.subColor;
+      ctx.fillStyle = getAutoTextColor(effectiveBgColor, settings.subColor);
       ctx.textAlign = 'center';
       ctx.fillText(settings.subText, w / 2, h * (settings.subY / 100));
     }
@@ -816,7 +896,8 @@ export default function App() {
       ctx.textAlign = settings.hAlign;
 
       if (!hasHighlights) {
-        ctx.fillStyle = vividStylePerLine[idx] ? vividStylePerLine[idx].text : settings.textColor;
+        const baseTxtColor = vividStylePerLine[idx] ? vividStylePerLine[idx].text : settings.textColor;
+        ctx.fillStyle = getAutoTextColor(effectiveBgColor, baseTxtColor);
         if (settings.shadowEnabled) {
           ctx.shadowColor = settings.shadowColor;
           ctx.shadowBlur = settings.shadowBlur;
@@ -860,7 +941,10 @@ export default function App() {
             ctx.fillStyle = '#0f172a';
             ctx.fillText(ch.text, curX, currentY);
           } else {
-            ctx.fillStyle = ch.isHighlight ? settings.highlightColor : (vividStylePerLine[idx] ? vividStylePerLine[idx].text : settings.textColor);
+            const baseTxtColor = vividStylePerLine[idx] ? vividStylePerLine[idx].text : settings.textColor;
+            ctx.fillStyle = ch.isHighlight 
+              ? getAutoTextColor(effectiveBgColor, settings.highlightColor) 
+              : getAutoTextColor(effectiveBgColor, baseTxtColor);
             ctx.fillText(ch.text, curX, currentY);
           }
           curX += ch.width;
@@ -901,7 +985,14 @@ export default function App() {
     if (settings.descEnabled && settings.descText) {
       const dSize = Math.round(settings.descSize * scale);
       ctx.font = `${settings.descWeight} ${dSize}px '${settings.fontFamily}', sans-serif`;
-      ctx.fillStyle = settings.descColor;
+      
+      let finalDescColor = settings.descColor;
+      if (settings.descBoxEnabled && settings.descBoxOpacity > 40) {
+        finalDescColor = getAutoTextColor(settings.descBoxColor, settings.descColor);
+      } else {
+        finalDescColor = getAutoTextColor(effectiveBgColor, settings.descColor);
+      }
+      ctx.fillStyle = finalDescColor;
       ctx.textAlign = settings.descHAlign;
       const dX = settings.descHAlign === 'left' ? w * 0.08 : (settings.descHAlign === 'right' ? w - w * 0.08 : w / 2);
       ctx.fillText(settings.descText, dX, h * (settings.descY / 100));
@@ -921,6 +1012,9 @@ export default function App() {
       const cRad = Math.round(settings.ctaRadius * scale);
 
       const ctaBg = vividStylePerLine[idx] ? vividStylePerLine[idx].cta : settings.ctaBgColor;
+      const finalCtaTextColor = settings.ctaTransparent 
+        ? getAutoTextColor(effectiveBgColor, settings.ctaTextColor)
+        : getContrastColorForBg(ctaBg, settings.ctaTextColor);
 
       // Draw custom CTA shapes in export to match preview exactly
       const roundRectPathExport = (x: number, y: number, width: number, height: number, radius: number) => {
@@ -1011,10 +1105,16 @@ export default function App() {
           roundRectPathExport(bX, bY, bW, bH, cRad);
       }
 
-      ctx.fillStyle = ctaBg;
-      ctx.fill();
+      if (!settings.ctaTransparent) {
+        ctx.fillStyle = ctaBg;
+        ctx.fill();
+      } else {
+        ctx.strokeStyle = finalCtaTextColor;
+        ctx.lineWidth = Math.round(3 * scale);
+        ctx.stroke();
+      }
 
-      ctx.fillStyle = settings.ctaTextColor;
+      ctx.fillStyle = finalCtaTextColor;
       ctx.textAlign = 'center';
       ctx.fillText(settings.ctaText, w / 2, bY + cPy + cSize * 0.76);
     }

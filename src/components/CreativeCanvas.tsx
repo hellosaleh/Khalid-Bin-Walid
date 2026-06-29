@@ -24,6 +24,32 @@ interface TextChunk {
 // Global Image Cache to prevent flickering during rapid updates
 const imageCache: Record<string, HTMLImageElement> = {};
 
+const isLightColor = (hex: string): boolean => {
+  if (!hex) return false;
+  if (hex.startsWith('rgba') || hex === 'transparent') return false;
+  const cleanHex = hex.replace('#', '');
+  if (cleanHex.length < 6) return false;
+  const r = parseInt(cleanHex.slice(0, 2), 16) || 0;
+  const g = parseInt(cleanHex.slice(2, 4), 16) || 0;
+  const b = parseInt(cleanHex.slice(4, 6), 16) || 0;
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.65;
+};
+
+const getAutoTextColor = (bg: string, chosenColor: string): string => {
+  if (isLightColor(bg) && isLightColor(chosenColor)) {
+    return '#0f172a';
+  }
+  return chosenColor;
+};
+
+const getContrastColorForBg = (bgHex: string, defaultColor: string): string => {
+  if (isLightColor(bgHex)) {
+    return '#0f172a';
+  }
+  return defaultColor;
+};
+
 export const CreativeCanvas: React.FC<CreativeCanvasProps> = ({
   text,
   idx,
@@ -281,6 +307,22 @@ export const CreativeCanvas: React.FC<CreativeCanvasProps> = ({
     const baseSize = 1080;
     const scale = w / baseSize;
 
+    // Determine effective background color for text contrast calculations
+    let effectiveBgColor = '#ffffff';
+    if (settings.bgTab === 'image') {
+      if (settings.overlayEnabled) {
+        effectiveBgColor = settings.overlayColor;
+      } else {
+        effectiveBgColor = '#000000'; // Default to dark image
+      }
+    } else if (settings.bgTab === 'gradient') {
+      effectiveBgColor = settings.gradC1; // Use primary gradient color
+    } else {
+      effectiveBgColor = vividStyle
+        ? vividStyle.bg
+        : perCardBgColor || settings.bgColor;
+    }
+
     // Render background
     if (settings.bgTab === 'image') {
       const bgUrl = perCardImage || (settings.images[settings.selectedImageIndex ?? 0]?.url);
@@ -348,7 +390,7 @@ export const CreativeCanvas: React.FC<CreativeCanvasProps> = ({
     if (settings.subEnabled && settings.subText) {
       const subSize = Math.round(settings.subSize * scale);
       ctx.font = `500 ${subSize}px '${settings.fontFamily}', sans-serif`;
-      ctx.fillStyle = settings.subColor;
+      ctx.fillStyle = getAutoTextColor(effectiveBgColor, settings.subColor);
       ctx.textAlign = 'center';
       const subYpx = h * (settings.subY / 100);
       ctx.fillText(settings.subText, w / 2, subYpx);
@@ -391,7 +433,7 @@ export const CreativeCanvas: React.FC<CreativeCanvasProps> = ({
       if (!hasHighlights) {
         // Standard high-performance direct fill & stroke
         const cleanLine = stripAsterisks(line);
-        drawSingleLineRaw(ctx, cleanLine, w / 2, currentY, settings, vividStyle);
+        drawSingleLineRaw(ctx, cleanLine, w / 2, currentY, settings, effectiveBgColor, vividStyle);
       } else {
         // Detailed chunk rendering for custom highlighted words
         // 1. Pre-measure each chunk to align correctly
@@ -447,9 +489,10 @@ export const CreativeCanvas: React.FC<CreativeCanvasProps> = ({
           } else {
             // Apply standard text-color highlight or base text color
             ctx.save();
+            const baseTxtColor = vividStyle ? vividStyle.text : settings.textColor;
             ctx.fillStyle = chunk.isHighlight 
-              ? settings.highlightColor 
-              : (vividStyle ? vividStyle.text : settings.textColor);
+              ? getAutoTextColor(effectiveBgColor, settings.highlightColor)
+              : getAutoTextColor(effectiveBgColor, baseTxtColor);
 
             // Apply shadow and outline text effects
             if (settings.shadowEnabled) {
@@ -511,7 +554,14 @@ export const CreativeCanvas: React.FC<CreativeCanvasProps> = ({
       ctx.save();
       const descSize = Math.round(settings.descSize * scale);
       ctx.font = `${settings.descWeight} ${descSize}px '${settings.fontFamily}', sans-serif`;
-      ctx.fillStyle = settings.descColor;
+      
+      let finalDescColor = settings.descColor;
+      if (settings.descBoxEnabled && settings.descBoxOpacity > 40) {
+        finalDescColor = getAutoTextColor(settings.descBoxColor, settings.descColor);
+      } else {
+        finalDescColor = getAutoTextColor(effectiveBgColor, settings.descColor);
+      }
+      ctx.fillStyle = finalDescColor;
 
       const descBoxPadding = Math.round(settings.descBoxPadding * scale);
       const maxDescW = w - pad * 2 - (settings.descBoxEnabled ? descBoxPadding * 2 : 0);
@@ -576,16 +626,19 @@ export const CreativeCanvas: React.FC<CreativeCanvasProps> = ({
       const ctaRadius = Math.round(settings.ctaRadius * scale);
 
       const ctaBg = vividStyle ? vividStyle.cta : settings.ctaBgColor;
+      const finalCtaTextColor = settings.ctaTransparent 
+        ? getAutoTextColor(effectiveBgColor, settings.ctaTextColor)
+        : getContrastColorForBg(ctaBg, settings.ctaTextColor);
 
       // Render shape
       if (!settings.ctaTransparent) {
         drawCTAShape(ctx, settings.ctaShape, bx, by, bw, bh, ctaRadius, ctaBg, null, 0);
       } else {
-        drawCTAShape(ctx, settings.ctaShape, bx, by, bw, bh, ctaRadius, null, settings.ctaTextColor, Math.round(3 * scale));
+        drawCTAShape(ctx, settings.ctaShape, bx, by, bw, bh, ctaRadius, null, finalCtaTextColor, Math.round(3 * scale));
       }
 
       // Fill CTA Text
-      ctx.fillStyle = settings.ctaTextColor;
+      ctx.fillStyle = finalCtaTextColor;
       ctx.textAlign = 'center';
       const ctaTextY = by + ctaPy + ctaSize * 0.76;
 
@@ -621,10 +674,12 @@ export const CreativeCanvas: React.FC<CreativeCanvasProps> = ({
     x: number,
     y: number,
     settings: AppSettings,
+    effectiveBgColor: string,
     vividStyle?: { bg: string; text: string; cta: string }
   ) => {
     ctx.save();
-    ctx.fillStyle = vividStyle ? vividStyle.text : settings.textColor;
+    const baseTxtColor = vividStyle ? vividStyle.text : settings.textColor;
+    ctx.fillStyle = getAutoTextColor(effectiveBgColor, baseTxtColor);
 
     if (settings.shadowEnabled) {
       ctx.shadowColor = settings.shadowColor;
