@@ -207,19 +207,21 @@ export default function App() {
   // UI Panel & Filter States
   const [searchQuery, setSearchQuery] = useState('');
   const [filterMode, setFilterMode] = useState<'all' | 'selected' | 'customImg'>('all');
-  const [viewMode, setViewMode] = useState<'grid' | 'live'>('grid');
   const [activeTab, setActiveTab] = useState<'solid' | 'gradient' | 'image'>('gradient');
-  const [openSections, setOpenSections] = useState<Record<string, boolean>>({
-    canvas: true,
-    bg: true,
-    typo: true,
-    effects: false,
-    subhl: false,
-    desc: false,
-    cta: false,
-    flag: false,
-    sheets: false
-  });
+  
+  // Left column sections auto-close queue
+  const [openQueue, setOpenQueue] = useState<string[]>(['canvas', 'bg']);
+  const openSections = useMemo(() => ({
+    canvas: openQueue.includes('canvas'),
+    bg: openQueue.includes('bg'),
+    typo: openQueue.includes('typo'),
+    effects: openQueue.includes('effects'),
+    subhl: openQueue.includes('subhl'),
+    desc: openQueue.includes('desc'),
+    cta: openQueue.includes('cta'),
+    flag: openQueue.includes('flag'),
+    sheets: openQueue.includes('sheets'),
+  }), [openQueue]);
 
   // Search/Autocomplete flags
   const [flagQuery, setFlagQuery] = useState('');
@@ -251,7 +253,17 @@ export default function App() {
   }, [perCardSettings]);
 
   const toggleSection = (key: string) => {
-    setOpenSections(prev => ({ ...prev, [key]: !prev[key] }));
+    setOpenQueue(prev => {
+      if (prev.includes(key)) {
+        return prev.filter(k => k !== key);
+      } else {
+        const next = [...prev, key];
+        if (next.length > 2) {
+          return next.slice(1);
+        }
+        return next;
+      }
+    });
   };
 
   // Keyboard navigation for Lightbox
@@ -1119,6 +1131,45 @@ export default function App() {
         .light-theme-workspace input[type="checkbox"] {
           border-color: #cbd5e1 !important;
         }
+
+        /* Ensure active filled items have clean high-contrast white text and white icons under light theme */
+        .light-theme-workspace .bg-indigo-600,
+        .light-theme-workspace .bg-indigo-600 *,
+        .light-theme-workspace .bg-indigo-600 svg,
+        .light-theme-workspace button.bg-indigo-600,
+        .light-theme-workspace button.bg-indigo-600 *,
+        .light-theme-workspace button.bg-indigo-600 svg,
+        .light-theme-workspace .bg-indigo-600\\/90,
+        .light-theme-workspace .bg-indigo-600\\/90 *,
+        .light-theme-workspace .bg-indigo-600\\/90 svg,
+        .light-theme-workspace .bg-gradient-to-tr.from-indigo-500,
+        .light-theme-workspace .bg-gradient-to-tr.from-indigo-500 *,
+        .light-theme-workspace .bg-gradient-to-tr.from-indigo-500 svg,
+        .light-theme-workspace .bg-indigo-600.text-white,
+        .light-theme-workspace .bg-indigo-600.text-white *,
+        .light-theme-workspace .bg-indigo-600.text-white svg,
+        .light-theme-workspace button.bg-indigo-600 .text-white,
+        .light-theme-workspace .bg-indigo-600 .text-white {
+          color: #ffffff !important;
+          stroke: #ffffff !important;
+        }
+        
+        /* Ensure active amber elements have readable dark text under light theme */
+        .light-theme-workspace .bg-amber-500,
+        .light-theme-workspace .bg-amber-500 *,
+        .light-theme-workspace button.bg-amber-500,
+        .light-theme-workspace button.bg-amber-500 * {
+          color: #0f172a !important;
+          stroke: #0f172a !important;
+        }
+        
+        /* Keep sparkles logo icon gold in light theme */
+        .light-theme-workspace .bg-gradient-to-tr.from-indigo-500 svg.text-amber-300,
+        .light-theme-workspace .bg-gradient-to-tr.from-indigo-500 .text-amber-300 svg,
+        .light-theme-workspace .bg-gradient-to-tr.from-indigo-500 .text-amber-300 {
+          color: #fef08a !important;
+          stroke: #fef08a !important;
+        }
       `}</style>
       
       {/* Background Mesh Gradients */}
@@ -1142,7 +1193,7 @@ export default function App() {
           </div>
           <div>
             <h1 className="text-md font-bold tracking-tight">Ad Creative Studio</h1>
-            <p className={`text-[10px] font-bold uppercase tracking-widest ${theme === 'dark' ? 'text-white/50' : 'text-slate-500'}`}>Bulk Generator v2</p>
+            <p className={`text-[10px] font-bold uppercase tracking-widest ${theme === 'dark' ? 'text-white/50' : 'text-slate-500'}`}>Tool By Khalid Bin Walid</p>
           </div>
         </div>
 
@@ -2411,107 +2462,103 @@ export default function App() {
       <main className="flex-1 flex flex-col overflow-hidden">
         
         {/* HEADER TOPBAR */}
-        <header className="bg-white/5 border-b border-white/10 px-6 py-4 flex items-center justify-between shadow-lg backdrop-blur-md z-10 shrink-0">
+        <header className={`border-b px-6 py-4 flex items-center justify-between shadow-lg backdrop-blur-md z-10 shrink-0 transition-all ${
+          theme === 'light' ? 'bg-white border-slate-200 text-slate-800' : 'bg-white/5 border-white/10 text-white'
+        }`}>
           <div className="flex items-center gap-3">
-            {/* View Mode Toggle */}
-            <div className="flex rounded-full bg-indigo-500/10 border border-indigo-500/20 p-0.5 text-xs font-semibold">
-              <button
-                onClick={() => setViewMode('grid')}
-                className={`rounded-full px-4 py-1.5 flex items-center gap-1.5 transition-all cursor-pointer ${
-                  viewMode === 'grid' ? 'bg-indigo-600 text-white shadow-md font-bold' : 'text-white/60 hover:text-white'
-                }`}
-              >
-                <LayoutGrid className="h-3.5 w-3.5" />
-                Grid View
-              </button>
-              <button
-                onClick={() => setViewMode('live')}
-                className={`rounded-full px-4 py-1.5 flex items-center gap-1.5 transition-all cursor-pointer ${
-                  viewMode === 'live' ? 'bg-indigo-600 text-white shadow-md font-bold' : 'text-white/60 hover:text-white'
-                }`}
-              >
-                <Eye className="h-3.5 w-3.5" />
-                Live Site View
-              </button>
-            </div>
-
-            <h2 className="text-sm font-bold text-white/80 block bg-white/5 border border-white/10 rounded-full px-4.5 py-1 backdrop-blur-sm">
-              🚀 Generated Creatives: <strong className="text-indigo-400">{adCopies.length} Variations</strong>
+            <h2 className={`text-sm font-bold block border rounded-full px-4.5 py-1 backdrop-blur-sm transition-all ${
+              theme === 'light' ? 'bg-slate-50 border-slate-200 text-slate-800' : 'bg-white/5 border-white/10 text-white/80'
+            }`}>
+              🚀 Generated Creatives: <strong className="text-indigo-600 dark:text-indigo-400">{adCopies.length} Variations</strong>
             </h2>
 
             {/* Filter mode */}
-            {viewMode === 'grid' && (
-              <div className="flex rounded-lg bg-white/5 border border-white/10 p-0.5 text-xs font-semibold">
-                <button
-                  onClick={() => setFilterMode('all')}
-                  className={`rounded-md px-3 py-1 transition-all ${
-                    filterMode === 'all' ? 'bg-white text-slate-900 shadow-md font-bold' : 'text-white/60 hover:text-white'
-                  }`}
-                >
-                  All
-                </button>
-                <button
-                  onClick={() => setFilterMode('selected')}
-                  className={`rounded-md px-3 py-1 transition-all ${
-                    filterMode === 'selected' ? 'bg-white text-slate-900 shadow-md font-bold' : 'text-white/60 hover:text-white'
-                  }`}
-                >
-                  Selected ({selectedCards.size})
-                </button>
-                <button
-                  onClick={() => setFilterMode('customImg')}
-                  className={`rounded-md px-3 py-1 transition-all ${
-                    filterMode === 'customImg' ? 'bg-white text-slate-900 shadow-md font-bold' : 'text-white/60 hover:text-white'
-                  }`}
-                >
-                  With Custom BG
-                </button>
-              </div>
-            )}
+            <div className={`flex rounded-lg p-0.5 text-xs font-semibold border transition-all ${
+              theme === 'light' ? 'bg-slate-100 border-slate-200' : 'bg-white/5 border-white/10'
+            }`}>
+              <button
+                onClick={() => setFilterMode('all')}
+                className={`rounded-md px-3 py-1 transition-all cursor-pointer ${
+                  filterMode === 'all'
+                    ? (theme === 'light' ? 'bg-white text-indigo-600 shadow-sm font-bold' : 'bg-white text-slate-900 shadow-md font-bold')
+                    : (theme === 'light' ? 'text-slate-600 hover:text-slate-900' : 'text-white/60 hover:text-white')
+                }`}
+              >
+                All
+              </button>
+              <button
+                onClick={() => setFilterMode('selected')}
+                className={`rounded-md px-3 py-1 transition-all cursor-pointer ${
+                  filterMode === 'selected'
+                    ? (theme === 'light' ? 'bg-white text-indigo-600 shadow-sm font-bold' : 'bg-white text-slate-900 shadow-md font-bold')
+                    : (theme === 'light' ? 'text-slate-600 hover:text-slate-900' : 'text-white/60 hover:text-white')
+                }`}
+              >
+                Selected ({selectedCards.size})
+              </button>
+              <button
+                onClick={() => setFilterMode('customImg')}
+                className={`rounded-md px-3 py-1 transition-all cursor-pointer ${
+                  filterMode === 'customImg'
+                    ? (theme === 'light' ? 'bg-white text-indigo-600 shadow-sm font-bold' : 'bg-white text-slate-900 shadow-md font-bold')
+                    : (theme === 'light' ? 'text-slate-600 hover:text-slate-900' : 'text-white/60 hover:text-white')
+                }`}
+              >
+                With Custom BG
+              </button>
+            </div>
           </div>
 
           <div className="flex items-center gap-3">
-            {viewMode === 'grid' && (
-              <>
-                {/* Search Copies */}
-                <div className="relative">
-                  <Search className="absolute left-3 top-2.5 h-4 w-4 text-white/40" />
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={e => setSearchQuery(e.target.value)}
-                    placeholder="Search headlines..."
-                    className="w-64 rounded-full border border-white/10 bg-white/5 pl-9 pr-4 py-1.5 text-xs font-semibold text-white placeholder-white/30 focus:bg-white/10 focus:border-indigo-400 focus:outline-none transition-all"
-                  />
-                </div>
+            {/* Search Copies */}
+            <div className="relative">
+              <Search className={`absolute left-3 top-2.5 h-4 w-4 ${theme === 'light' ? 'text-slate-400' : 'text-white/40'}`} />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="Search headlines..."
+                className={`w-64 rounded-full pl-9 pr-4 py-1.5 text-xs font-semibold focus:outline-none transition-all border ${
+                  theme === 'light'
+                    ? 'border-slate-200 bg-white text-slate-800 placeholder-slate-400 focus:border-indigo-500 focus:bg-slate-50'
+                    : 'border-white/10 bg-white/5 text-white placeholder-white/30 focus:bg-white/10 focus:border-indigo-400'
+                }`}
+              />
+            </div>
 
-                <button
-                  onClick={selectAll}
-                  className="rounded-full border border-white/10 bg-white/5 hover:bg-white/10 px-4.5 py-2 text-xs font-bold text-white/80 shadow-md transition-all cursor-pointer"
-                >
-                  ⊙ Select All
-                </button>
+            <button
+              onClick={selectAll}
+              className={`rounded-full px-4.5 py-2 text-xs font-bold border transition-all cursor-pointer shadow-sm ${
+                theme === 'light'
+                  ? 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                  : 'border-white/10 bg-white/5 text-white/80 hover:bg-white/10'
+              }`}
+            >
+              ⊙ Select All
+            </button>
 
-                <button
-                  onClick={batchZipDownload}
-                  className="rounded-full bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-xs px-5 py-2.5 shadow-lg shadow-indigo-500/20 flex items-center gap-1.5 transition-all cursor-pointer"
-                >
-                  <Download className="h-4 w-4" />
-                  Export ZIP Pack
-                </button>
-              </>
-            )}
+            <button
+              onClick={batchZipDownload}
+              className="rounded-full bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-xs px-5 py-2.5 shadow-lg shadow-indigo-500/20 flex items-center gap-1.5 transition-all cursor-pointer"
+            >
+              <Download className="h-4 w-4" />
+              Export ZIP Pack
+            </button>
 
             {/* Dynamic Theme Switcher */}
             <button
               onClick={() => setTheme(prev => prev === 'dark' ? 'light' : 'dark')}
-              className="h-9 w-9 rounded-full border border-white/10 bg-white/5 hover:bg-white/10 flex items-center justify-center text-white/80 transition-all cursor-pointer shadow-md select-none"
+              className={`h-9 w-9 rounded-full flex items-center justify-center transition-all cursor-pointer shadow-md select-none border ${
+                theme === 'light'
+                  ? 'border-slate-200 bg-white text-slate-800 hover:bg-slate-50'
+                  : 'border-white/10 bg-white/5 text-white/80 hover:bg-white/10'
+              }`}
               title={theme === 'dark' ? 'Switch to Bright Mode' : 'Switch to Dark Mode'}
             >
               {theme === 'dark' ? (
                 <Sun className="h-4.5 w-4.5 text-amber-300 animate-pulse" />
               ) : (
-                <Moon className="h-4.5 w-4.5 text-indigo-500" />
+                <Moon className="h-4.5 w-4.5 text-indigo-600" />
               )}
             </button>
           </div>
@@ -2558,24 +2605,15 @@ export default function App() {
 
         {/* DYNAMIC GRID VIEWPORT */}
         <div className="flex-1 overflow-y-auto p-6 bg-transparent">
-          {viewMode === 'live' ? (
-            <LiveMockupView
-              adCopies={adCopies}
-              settings={settings}
-              perCardImages={perCardImages}
-              perCardBgColors={perCardBgColors}
-              perCardPos={perCardPos}
-              vividStylePerLine={vividStylePerLine}
-              perCardSettings={perCardSettings}
-              editScope={editScope}
-            />
-          ) : filteredCopies.length === 0 ? (
+          {filteredCopies.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-center max-w-sm mx-auto">
-              <div className="h-14 w-14 bg-white/5 text-indigo-400 rounded-full flex items-center justify-center border border-white/10 mb-4 shadow-lg">
+              <div className={`h-14 w-14 rounded-full flex items-center justify-center border mb-4 shadow-lg transition-all ${
+                theme === 'light' ? 'bg-white text-indigo-600 border-slate-200' : 'bg-white/5 text-indigo-400 border-white/10'
+              }`}>
                 <LayoutGrid className="h-7 w-7" />
               </div>
-              <h3 className="text-base font-extrabold text-white">No matching variations</h3>
-              <p className="text-xs text-white/50 font-semibold mt-1">
+              <h3 className={`text-base font-extrabold transition-all ${theme === 'light' ? 'text-slate-800' : 'text-white'}`}>No matching variations</h3>
+              <p className={`text-xs font-semibold mt-1 transition-all ${theme === 'light' ? 'text-slate-500' : 'text-white/50'}`}>
                 Try clearing your search query or enabling/disabling your custom filter toggles in the header to view your templates.
               </p>
             </div>
@@ -2585,12 +2623,14 @@ export default function App() {
                 <motion.div
                   key={originalIndex}
                   layoutId={`card-${originalIndex}`}
-                  className={`relative rounded-2xl p-0 cursor-pointer overflow-hidden group transition-all duration-200 border bg-white/5 backdrop-blur-md ${
+                  className={`relative rounded-2xl p-0 cursor-pointer overflow-hidden group transition-all duration-200 border ${
                     editScope === 'single' && activeEditIndex === originalIndex
                       ? 'border-amber-400 ring-4 ring-amber-400/30 shadow-2xl scale-[1.02]'
                       : selectedCards.has(originalIndex)
                       ? 'border-indigo-500 ring-4 ring-indigo-500/20 shadow-2xl scale-[1.01]'
-                      : 'border-white/10 hover:border-white/20 hover:bg-white/10 hover:shadow-xl'
+                      : theme === 'light'
+                      ? 'border-slate-200 bg-white hover:border-indigo-300 hover:bg-slate-50/50 hover:shadow-xl'
+                      : 'border-white/10 bg-white/5 backdrop-blur-md hover:border-white/20 hover:bg-white/10 hover:shadow-xl'
                   }`}
                   onClick={(e) => handleSelectCard(originalIndex, e)}
                   onMouseMove={handleDragMove}
@@ -2602,6 +2642,8 @@ export default function App() {
                     className={`absolute top-3.5 left-3.5 h-6 w-6 rounded-full border-2 flex items-center justify-center transition-all z-20 shadow-lg ${
                       selectedCards.has(originalIndex)
                         ? 'bg-indigo-600 border-indigo-400 text-white scale-110'
+                        : theme === 'light'
+                        ? 'bg-slate-100 border-slate-300 text-transparent hover:bg-slate-200'
                         : 'bg-white/10 border-white/30 text-transparent hover:bg-white/20'
                     }`}
                     onClick={(e) => {
@@ -2671,8 +2713,14 @@ export default function App() {
                   </div>
 
                   {/* Footer Labels */}
-                  <div className="p-3 bg-white/5 border-t border-white/10 flex items-center justify-between backdrop-blur-md">
-                    <p className="text-[11px] font-bold text-white/90 truncate flex-1 pr-3">
+                  <div className={`p-3 border-t flex items-center justify-between transition-all ${
+                    theme === 'light'
+                      ? 'bg-slate-50 border-slate-100 text-slate-800'
+                      : 'bg-white/5 border-white/10 text-white/90 backdrop-blur-md'
+                  }`}>
+                    <p className={`text-[11px] font-bold truncate flex-1 pr-3 ${
+                      theme === 'light' ? 'text-slate-700' : 'text-white/90'
+                    }`}>
                       {copy.replace(/\*/g, '')}
                     </p>
                     <div className="flex items-center gap-1 shrink-0">
@@ -2682,7 +2730,11 @@ export default function App() {
                           autoDetectSubjectArea(originalIndex);
                         }}
                         title="Autofocus Subject Centroid"
-                        className="p-1 text-white/40 hover:text-indigo-400 rounded hover:bg-white/10 transition-colors"
+                        className={`p-1 rounded transition-colors ${
+                          theme === 'light'
+                            ? 'text-slate-400 hover:text-indigo-600 hover:bg-slate-200'
+                            : 'text-white/40 hover:text-indigo-400 hover:bg-white/10'
+                        }`}
                       >
                         <Sparkles className="h-3.5 w-3.5" />
                       </button>
@@ -2691,7 +2743,11 @@ export default function App() {
                           e.stopPropagation();
                           setLightboxIndex(originalIndex);
                         }}
-                        className="p-1 text-white/40 hover:text-indigo-400 rounded hover:bg-white/10 transition-colors"
+                        className={`p-1 rounded transition-colors ${
+                          theme === 'light'
+                            ? 'text-slate-400 hover:text-indigo-600 hover:bg-slate-200'
+                            : 'text-white/40 hover:text-indigo-400 hover:bg-white/10'
+                        }`}
                       >
                         <Maximize2 className="h-3.5 w-3.5" />
                       </button>
