@@ -37,9 +37,6 @@ const isLightColor = (hex: string): boolean => {
 };
 
 const getAutoTextColor = (bg: string, chosenColor: string): string => {
-  if (isLightColor(bg) && isLightColor(chosenColor)) {
-    return '#0f172a';
-  }
   return chosenColor;
 };
 

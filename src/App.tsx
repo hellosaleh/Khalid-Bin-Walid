@@ -58,9 +58,6 @@ const isLightColor = (hex: string): boolean => {
 };
 
 const getAutoTextColor = (bg: string, chosenColor: string): string => {
-  if (isLightColor(bg) && isLightColor(chosenColor)) {
-    return '#0f172a';
-  }
   return chosenColor;
 };
 
@@ -192,8 +189,10 @@ export default function App() {
   const setSettings = useCallback((
     updater: AppSettings | ((prev: AppSettings) => AppSettings)
   ) => {
-    const triggerKeys: Array<keyof AppSettings> = [
-      'bgColor', 'bgTab', 'selectedImageIndex', 'gradC1', 'gradC2',
+    const bgTriggerKeys: Array<keyof AppSettings> = [
+      'bgColor', 'bgTab', 'selectedImageIndex', 'gradC1', 'gradC2'
+    ];
+    const colorTriggerKeys: Array<keyof AppSettings> = [
       'textColor', 'ctaBgColor', 'ctaTextColor', 'highlightColor'
     ];
 
@@ -205,18 +204,44 @@ export default function App() {
         
         // Compute delta against globalSettings
         const diff: any = {};
-        let backgroundOrStyleChanged = false;
+        let bgChanged = false;
+        let colorOverrideChanged = false;
 
         (Object.keys(globalSettings) as Array<keyof AppSettings>).forEach(key => {
           if (JSON.stringify(nextMerged[key]) !== JSON.stringify(globalSettings[key])) {
             diff[key] = nextMerged[key];
-            if (triggerKeys.includes(key)) {
-              backgroundOrStyleChanged = true;
+            if (bgTriggerKeys.includes(key)) {
+              bgChanged = true;
+            }
+            if (colorTriggerKeys.includes(key)) {
+              colorOverrideChanged = true;
             }
           }
         });
 
-        if (backgroundOrStyleChanged) {
+        // If background style changed, clear both custom bg color and vivid style for this card
+        if (bgChanged) {
+          setPerCardBgColors(prevBg => {
+            if (prevBg[activeEditIndex] !== undefined) {
+              const copy = { ...prevBg };
+              delete copy[activeEditIndex];
+              return copy;
+            }
+            return prevBg;
+          });
+          setVividStylePerLine(vivid => {
+            if (vivid[activeEditIndex]) {
+              const copy = { ...vivid };
+              delete copy[activeEditIndex];
+              return copy;
+            }
+            return vivid;
+          });
+        }
+
+        // If a color override changed, we clear the auto-vivid styles so user edits take effect,
+        // but we absolutely DO NOT delete the user's custom card background color!
+        if (colorOverrideChanged) {
           setVividStylePerLine(vivid => {
             if (vivid[activeEditIndex]) {
               const copy = { ...vivid };
@@ -235,11 +260,11 @@ export default function App() {
     } else {
       setGlobalSettings(prev => {
         const next = typeof updater === 'function' ? updater(prev) : updater;
-        const backgroundOrStyleChanged = triggerKeys.some(key => 
+        const bgChanged = bgTriggerKeys.some(key => 
           JSON.stringify(next[key]) !== JSON.stringify(prev[key])
         );
 
-        if (backgroundOrStyleChanged) {
+        if (bgChanged) {
           setVividStylePerLine({}); // Clear all vivid overrides globally
         }
         return next;
