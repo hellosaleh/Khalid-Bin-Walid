@@ -1286,7 +1286,7 @@ export default function App() {
           </div>
           <div>
             <h1 className="text-md font-bold tracking-tight">Ad Creative Studio</h1>
-            <p className={`text-[10px] font-bold uppercase tracking-widest ${theme === 'dark' ? 'text-white/50' : 'text-slate-500'}`}>Tool By Khalid Bin Walid</p>
+            <p className={`text-[10px] font-bold uppercase tracking-widest ${theme === 'dark' ? 'text-white/50' : 'text-slate-500'}`}>A Tool By KHLD</p>
           </div>
         </div>
 
