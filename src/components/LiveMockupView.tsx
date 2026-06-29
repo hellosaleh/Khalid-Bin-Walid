@@ -28,6 +28,7 @@ interface LiveMockupViewProps {
   perCardPos: Record<number, DragPosition>;
   vividStylePerLine: Record<number, { bg: string; text: string; cta: string }>;
   perCardSettings?: Record<number, Partial<AppSettings>>;
+  editScope?: 'global' | 'single';
 }
 
 type MockupPlacement = 'blog' | 'social' | 'ecommerce' | 'search';
@@ -41,6 +42,7 @@ export const LiveMockupView: React.FC<LiveMockupViewProps> = ({
   perCardPos,
   vividStylePerLine,
   perCardSettings,
+  editScope = 'global',
 }) => {
   const [placement, setPlacement] = useState<MockupPlacement>('blog');
   const [device, setDevice] = useState<MockupDevice>('desktop');
@@ -50,6 +52,9 @@ export const LiveMockupView: React.FC<LiveMockupViewProps> = ({
   const safeActiveIdx = activeIdx < adCopies.length ? activeIdx : 0;
 
   const getCardSettings = (idx: number) => {
+    if (editScope === 'global') {
+      return globalSettings;
+    }
     return { ...globalSettings, ...(perCardSettings?.[idx] || {}) };
   };
 

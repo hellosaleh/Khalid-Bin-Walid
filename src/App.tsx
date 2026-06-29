@@ -26,7 +26,9 @@ import {
   Upload,
   Link,
   Move,
-  Eye
+  Eye,
+  Sun,
+  Moon
 } from 'lucide-react';
 
 import { AppSettings, CanvasSizePreset, CtaShape, AlignHorizontal, AlignVertical } from './types';
@@ -132,6 +134,16 @@ export default function App() {
     };
   });
 
+  // Workspace Theme: 'dark' | 'light'
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    const saved = localStorage.getItem('app_theme');
+    return (saved === 'light' || saved === 'dark') ? saved : 'dark';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('app_theme', theme);
+  }, [theme]);
+
   // Edit scope: 'global' | 'single'
   const [editScope, setEditScope] = useState<'global' | 'single'>('global');
 
@@ -168,10 +180,10 @@ export default function App() {
         const nextMerged = typeof updater === 'function' ? updater(currentMerged) : updater;
         
         // Compute delta against globalSettings
-        const diff: Partial<AppSettings> = {};
+        const diff: any = {};
         (Object.keys(globalSettings) as Array<keyof AppSettings>).forEach(key => {
           if (JSON.stringify(nextMerged[key]) !== JSON.stringify(globalSettings[key])) {
-            diff[key] = nextMerged[key] as any;
+            diff[key] = nextMerged[key];
           }
         });
         
@@ -623,10 +635,18 @@ export default function App() {
           height = settings.customHeight || 1080;
         }
 
-        // Draw full-scale canvas
-        await triggerOffscreenRender(canvas, text, idx, width, height);
+        let dataUrl = '';
+        try {
+          // Draw full-scale canvas
+          await triggerOffscreenRender(canvas, text, idx, width, height, false);
+          dataUrl = canvas.toDataURL('image/png');
+        } catch (canvasErr) {
+          console.warn(`Canvas tainted at index ${idx} (potentially due to CORS on background image). Retrying fallback solid background...`, canvasErr);
+          // Retry drawing but with forced solid background
+          await triggerOffscreenRender(canvas, text, idx, width, height, true);
+          dataUrl = canvas.toDataURL('image/png');
+        }
         
-        const dataUrl = canvas.toDataURL('image/png');
         const base64Data = dataUrl.split(',')[1];
         
         // Clean name
@@ -640,7 +660,8 @@ export default function App() {
       link.href = URL.createObjectURL(blob);
       link.click();
     } catch (err) {
-      console.error(err);
+      console.error("Critical error generating ZIP package:", err);
+      alert("An error occurred compiling your image ZIP. Fallback images have been written to avoid silent failures.");
     } finally {
       setExportProgress(null);
     }
@@ -652,7 +673,8 @@ export default function App() {
     text: string,
     idx: number,
     w: number,
-    h: number
+    h: number,
+    forceSolidBg: boolean = false
   ) => {
     // Shadow standard settings with card-specific overrides
     const settings = { ...globalSettings, ...(perCardSettings[idx] || {}) };
@@ -669,7 +691,7 @@ export default function App() {
 
     // Render background
     const bgUrl = perCardImages[idx] || (settings.bgTab === 'image' && settings.images[settings.selectedImageIndex ?? 0]?.url);
-    if (settings.bgTab === 'image' && bgUrl) {
+    if (settings.bgTab === 'image' && bgUrl && !forceSolidBg) {
       // Since it's fully exported, let's load it synchronously if possible, or wait
       const img = new Image();
       img.crossOrigin = 'anonymous';
@@ -710,7 +732,7 @@ export default function App() {
         ctx.fillStyle = `rgba(${r},${g},${b},${settings.overlayOpacity / 100})`;
         ctx.fillRect(0, 0, w, h);
       }
-    } else if (settings.bgTab === 'gradient') {
+    } else if (settings.bgTab === 'gradient' && !forceSolidBg) {
       const angleRad = (settings.gradAngle * Math.PI) / 180;
       const grd = ctx.createLinearGradient(
         w / 2 - (Math.cos(angleRad) * w) / 2,
@@ -886,13 +908,98 @@ export default function App() {
       const bY = h * (settings.ctaY / 100) - bH / 2;
       const cRad = Math.round(settings.ctaRadius * scale);
 
-      ctx.fillStyle = vividStylePerLine[idx] ? vividStylePerLine[idx].cta : settings.ctaBgColor;
+      const ctaBg = vividStylePerLine[idx] ? vividStylePerLine[idx].cta : settings.ctaBgColor;
+
+      // Draw custom CTA shapes in export to match preview exactly
+      const roundRectPathExport = (x: number, y: number, width: number, height: number, radius: number) => {
+        ctx.moveTo(x + radius, y);
+        ctx.lineTo(x + width - radius, y);
+        ctx.arcTo(x + width, y, x + width, y + radius, radius);
+        ctx.lineTo(x + width, y + height - radius);
+        ctx.arcTo(x + width, y + height, x + width - radius, y + height, radius);
+        ctx.lineTo(x + radius, y + height);
+        ctx.arcTo(x, y + height, x, y + height - radius, radius);
+        ctx.lineTo(x, y + radius);
+        ctx.arcTo(x, y, x + radius, y, radius);
+        ctx.closePath();
+      };
+
       ctx.beginPath();
-      if (ctx.roundRect) {
-        ctx.roundRect(bX, bY, bW, bH, cRad);
-      } else {
-        ctx.rect(bX, bY, bW, bH);
+      switch (settings.ctaShape) {
+        case 'pill': {
+          const pr = bH / 2;
+          ctx.moveTo(bX + pr, bY);
+          ctx.lineTo(bX + bW - pr, bY);
+          ctx.arc(bX + bW - pr, bY + pr, pr, -Math.PI / 2, Math.PI / 2);
+          ctx.lineTo(bX + pr, bY + bH);
+          ctx.arc(bX + pr, bY + pr, pr, Math.PI / 2, -Math.PI / 2);
+          ctx.closePath();
+          break;
+        }
+        case 'sharp':
+          ctx.rect(bX, bY, bW, bH);
+          break;
+        case 'soft':
+          roundRectPathExport(bX, bY, bW, bH, Math.min(16, bH * 0.25));
+          break;
+        case 'angled': {
+          const slant = bH * 0.35;
+          ctx.moveTo(bX + slant, bY);
+          ctx.lineTo(bX + bW, bY);
+          ctx.lineTo(bX + bW - slant, bY + bH);
+          ctx.lineTo(bX, bY + bH);
+          ctx.closePath();
+          break;
+        }
+        case 'arrow': {
+          const ah = bH * 0.4;
+          ctx.moveTo(bX, bY);
+          ctx.lineTo(bX + bW - ah, bY);
+          ctx.lineTo(bX + bW, bY + bH / 2);
+          ctx.lineTo(bX + bW - ah, bY + bH);
+          ctx.lineTo(bX, bY + bH);
+          ctx.closePath();
+          break;
+        }
+        case 'ribbon': {
+          const notch = bH * 0.3;
+          ctx.moveTo(bX, bY);
+          ctx.lineTo(bX + bW, bY);
+          ctx.lineTo(bX + bW, bY + bH);
+          ctx.lineTo(bX, bY + bH);
+          ctx.lineTo(bX + notch, bY + bH / 2);
+          ctx.closePath();
+          break;
+        }
+        case 'hexagon': {
+          const hx = bH * 0.4;
+          ctx.moveTo(bX + hx, bY);
+          ctx.lineTo(bX + bW - hx, bY);
+          ctx.lineTo(bX + bW, bY + bH / 2);
+          ctx.lineTo(bX + bW - hx, bY + bH);
+          ctx.lineTo(bX + hx, bY + bH);
+          ctx.lineTo(bX, bY + bH / 2);
+          ctx.closePath();
+          break;
+        }
+        case 'notch': {
+          const nc = bH * 0.2;
+          ctx.moveTo(bX + nc, bY);
+          ctx.lineTo(bX + bW - nc, bY);
+          ctx.lineTo(bX + bW, bY + nc);
+          ctx.lineTo(bX + bW, bY + bH - nc);
+          ctx.lineTo(bX + bW - nc, bY + bH);
+          ctx.lineTo(bX + nc, bY + bH);
+          ctx.lineTo(bX, bY + bH - nc);
+          ctx.lineTo(bX, bY + nc);
+          ctx.closePath();
+          break;
+        }
+        default:
+          roundRectPathExport(bX, bY, bW, bH, cRad);
       }
+
+      ctx.fillStyle = ctaBg;
       ctx.fill();
 
       ctx.fillStyle = settings.ctaTextColor;
@@ -918,24 +1025,124 @@ export default function App() {
     });
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#0c0c14] font-sans text-white antialiased selection:bg-indigo-500/30 selection:text-white relative">
+    <div className={`flex h-screen w-screen overflow-hidden font-sans antialiased relative transition-all duration-300 ${
+      theme === 'light' ? 'light-theme-workspace bg-[#f3f4f6] text-slate-900' : 'bg-[#0c0c14] text-white selection:bg-indigo-500/30 selection:text-white'
+    }`}>
+      
+      {/* Dynamic Theme Styles Override */}
+      <style>{`
+        .light-theme-workspace {
+          --tw-border-opacity: 1 !important;
+        }
+        .light-theme-workspace aside {
+          background-color: #ffffff !important;
+          border-color: #e2e8f0 !important;
+          color: #0f172a !important;
+        }
+        .light-theme-workspace header {
+          background-color: #ffffff !important;
+          border-color: #e2e8f0 !important;
+          color: #0f172a !important;
+        }
+        .light-theme-workspace select,
+        .light-theme-workspace input[type="text"],
+        .light-theme-workspace input[type="number"],
+        .light-theme-workspace textarea {
+          background-color: #ffffff !important;
+          border-color: #cbd5e1 !important;
+          color: #0f172a !important;
+        }
+        .light-theme-workspace select option {
+          background-color: #ffffff !important;
+          color: #0f172a !important;
+        }
+        .light-theme-workspace label,
+        .light-theme-workspace .text-white\\/40,
+        .light-theme-workspace .text-white\\/50,
+        .light-theme-workspace .text-white\\/60 {
+          color: #475569 !important;
+        }
+        .light-theme-workspace .text-white\\/80,
+        .light-theme-workspace .text-white\\/90 {
+          color: #1e293b !important;
+        }
+        .light-theme-workspace .border-white\\/10 {
+          border-color: #e2e8f0 !important;
+        }
+        .light-theme-workspace .bg-white\\/5 {
+          background-color: #f8fafc !important;
+        }
+        .light-theme-workspace .hover\\:bg-white\\/10:hover {
+          background-color: #f1f5f9 !important;
+        }
+        .light-theme-workspace .bg-white\\/10 {
+          background-color: #e2e8f0 !important;
+        }
+        .light-theme-workspace .bg-slate-950\\/40 {
+          background-color: #f1f5f9 !important;
+          border-color: #cbd5e1 !important;
+        }
+        .light-theme-workspace .bg-slate-900\\/60 {
+          background-color: #ffffff !important;
+          border-color: #cbd5e1 !important;
+        }
+        .light-theme-workspace .bg-amber-500\\/5 {
+          background-color: #fffbeb !important;
+          border-color: #fde68a !important;
+        }
+        .light-theme-workspace .text-amber-300 {
+          color: #b45309 !important;
+        }
+        .light-theme-workspace .text-amber-400 {
+          color: #d97706 !important;
+        }
+        .light-theme-workspace .text-indigo-400 {
+          color: #4f46e5 !important;
+        }
+        .light-theme-workspace .text-white {
+          color: #0f172a !important;
+        }
+        .light-theme-workspace .bg-indigo-505\\/10,
+        .light-theme-workspace .bg-indigo-500\\/10 {
+          background-color: #e0e7ff !important;
+          border-color: #c7d2fe !important;
+        }
+        .light-theme-workspace .text-white\\/60 {
+          color: #475569 !important;
+        }
+        .light-theme-workspace .text-white\\/60:hover {
+          color: #0f172a !important;
+        }
+        .light-theme-workspace .shadow-2xl {
+          box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.05), 0 2px 4px -2px rgb(0 0 0 / 0.05) !important;
+        }
+        .light-theme-workspace input[type="checkbox"] {
+          border-color: #cbd5e1 !important;
+        }
+      `}</style>
       
       {/* Background Mesh Gradients */}
       <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
-        <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[60%] rounded-full bg-indigo-600/25 blur-[120px]"></div>
-        <div className="absolute bottom-[-10%] right-[-10%] w-[60%] h-[60%] rounded-full bg-purple-600/15 blur-[120px]"></div>
-        <div className="absolute top-[30%] right-[10%] w-[30%] h-[40%] rounded-full bg-blue-500/10 blur-[100px]"></div>
+        <div className={`absolute top-[-10%] left-[-10%] w-[50%] h-[60%] rounded-full blur-[120px] transition-all duration-300 ${theme === 'dark' ? 'bg-indigo-600/25' : 'bg-indigo-600/8'}`}></div>
+        <div className={`absolute bottom-[-10%] right-[-10%] w-[60%] h-[60%] rounded-full blur-[120px] transition-all duration-300 ${theme === 'dark' ? 'bg-purple-600/15' : 'bg-purple-600/6'}`}></div>
+        <div className={`absolute top-[30%] right-[10%] w-[30%] h-[40%] rounded-full blur-[100px] transition-all duration-300 ${theme === 'dark' ? 'bg-blue-500/10' : 'bg-blue-500/4'}`}></div>
       </div>
 
       {/* SIDEBAR */}
-      <aside className="relative z-10 flex w-96 flex-col border-r border-white/10 backdrop-blur-xl bg-white/5 shadow-2xl">
-        <div className="flex items-center gap-3 bg-gradient-to-tr from-indigo-500/20 to-purple-500/20 px-6 py-4.5 text-white border-b border-white/10">
+      <aside className={`relative z-10 flex w-96 flex-col border-r backdrop-blur-xl transition-all duration-300 ${
+        theme === 'dark' ? 'border-white/10 bg-white/5 shadow-2xl' : 'border-slate-200 bg-white shadow-sm text-slate-800'
+      }`}>
+        <div className={`flex items-center gap-3 px-6 py-4.5 border-b transition-all duration-300 ${
+          theme === 'dark' 
+            ? 'bg-gradient-to-tr from-indigo-500/20 to-purple-500/20 text-white border-white/10' 
+            : 'bg-indigo-50/50 text-indigo-950 border-slate-200'
+        }`}>
           <div className="w-8 h-8 bg-gradient-to-tr from-indigo-500 to-purple-500 rounded-lg shadow-lg shadow-indigo-500/20 flex items-center justify-center">
             <Sparkles className="h-4 w-4 text-amber-300 animate-pulse" />
           </div>
           <div>
             <h1 className="text-md font-bold tracking-tight">Ad Creative Studio</h1>
-            <p className="text-[10px] text-white/50 font-bold uppercase tracking-widest">Bulk Generator v2</p>
+            <p className={`text-[10px] font-bold uppercase tracking-widest ${theme === 'dark' ? 'text-white/50' : 'text-slate-500'}`}>Bulk Generator v2</p>
           </div>
         </div>
 
@@ -2294,6 +2501,19 @@ export default function App() {
                 </button>
               </>
             )}
+
+            {/* Dynamic Theme Switcher */}
+            <button
+              onClick={() => setTheme(prev => prev === 'dark' ? 'light' : 'dark')}
+              className="h-9 w-9 rounded-full border border-white/10 bg-white/5 hover:bg-white/10 flex items-center justify-center text-white/80 transition-all cursor-pointer shadow-md select-none"
+              title={theme === 'dark' ? 'Switch to Bright Mode' : 'Switch to Dark Mode'}
+            >
+              {theme === 'dark' ? (
+                <Sun className="h-4.5 w-4.5 text-amber-300 animate-pulse" />
+              ) : (
+                <Moon className="h-4.5 w-4.5 text-indigo-500" />
+              )}
+            </button>
           </div>
         </header>
 
@@ -2347,6 +2567,7 @@ export default function App() {
               perCardPos={perCardPos}
               vividStylePerLine={vividStylePerLine}
               perCardSettings={perCardSettings}
+              editScope={editScope}
             />
           ) : filteredCopies.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-center max-w-sm mx-auto">
@@ -2422,7 +2643,7 @@ export default function App() {
                     onMouseDown={(e) => handleDragStart(originalIndex, e)}
                   >
                     {(() => {
-                      const cardSettings = { ...globalSettings, ...(perCardSettings[originalIndex] || {}) };
+                      const cardSettings = editScope === 'global' ? globalSettings : { ...globalSettings, ...(perCardSettings[originalIndex] || {}) };
                       return (
                         <CreativeCanvas
                           text={copy}
@@ -2526,7 +2747,7 @@ export default function App() {
 
               <div className="w-full max-h-[75vh] flex items-center justify-center p-4" onClick={(e) => e.stopPropagation()}>
                 {(() => {
-                  const cardSettings = { ...globalSettings, ...(perCardSettings[lightboxIndex] || {}) };
+                  const cardSettings = editScope === 'global' ? globalSettings : { ...globalSettings, ...(perCardSettings[lightboxIndex] || {}) };
                   return (
                     <CreativeCanvas
                       text={adCopies[lightboxIndex] || ''}
